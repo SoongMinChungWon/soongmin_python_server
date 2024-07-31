@@ -42,36 +42,50 @@ def find_similar_posts():
     query_text = f"{query_title} {query_content}"
 
     # 검색어 임베딩 생성
-    query_embedding = model.encode(query_text)
+    query_embedding = model.encode(query_text).tolist()
 
-    # 데이터베이스에서 모든 게시글 임베딩 가져오기
+    # 데이터베이스에서 모든 임베딩 값 가져오기
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT post_id, embedding FROM post_embeddings")
-    all_posts = cursor.fetchall()
+    cursor.execute("SELECT post_id, embedding_id, value FROM embedding_values")
+    all_embeddings = cursor.fetchall()
     cursor.close()
     conn.close()
 
+    # 임베딩 값 정리 및 벡터 생성
+    post_embeddings = {}
+    for row in all_embeddings:
+        post_id = row['post_id']
+        embedding_id = row['embedding_id']
+        value = row['value']  # Assume 'value' is a float
+
+        if post_id not in post_embeddings:
+            post_embeddings[post_id] = [0.0] * 384  # Initialize with zeros
+
+        # embedding_id를 384로 나눈 나머지로 계산하여 해당 위치에 값 저장
+        index = embedding_id % 384
+        post_embeddings[post_id][index] = value
+
     # 유사도 계산
     similarities = []
-    for post in all_posts:
-        post_id = post['post_id']
-        post_embedding = json.loads(post['embedding'])
-        similarity = util.cos_sim(query_embedding, post_embedding).item()
-        if similarity > 0.7:
+    for post_id, embedding_values in post_embeddings.items():
+        # Convert to tensor
+        embedding_tensor = torch.tensor(embedding_values).unsqueeze(0)
+
+        # Calculate cosine similarity
+        similarity = util.cos_sim(query_embedding, embedding_tensor).item()
+        if similarity > -0.5:  # 유사도 기준
             similarities.append({'post_id': post_id, 'similarity': similarity})
 
     # 유사도가 높은 순으로 정렬
     similar_posts = sorted(similarities, key=lambda x: x['similarity'], reverse=True)
 
-    # 유사한 게시글 목록을 스프링 서버에 전달
-    result_data = {
+    # 클라이언트에게 유사한 게시글 목록을 직접 반환
+    return jsonify({
+        'status': 'success',
         'query': query_text,
         'similar_posts': similar_posts
-    }
-    result_response = requests.post(f"localhost:8080/receive_similar_posts", json=result_data)
-
-    return jsonify({'status': 'success', 'response': result_response.json()})
+    })
 
 @app.route('/')
 def index():
