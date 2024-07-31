@@ -1,8 +1,10 @@
+import torch
 from flask import Flask, request, jsonify
 import requests
 import mysql.connector
 from sentence_transformers import SentenceTransformer, util
 import json
+
 
 app = Flask(__name__)
 
